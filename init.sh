@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env sh
 
 clear
 
@@ -6,6 +6,35 @@ echo "=============================="
 echo " VPS 初始化脚本"
 echo "=============================="
 echo ""
+
+# =========================
+# 检测系统
+# =========================
+
+if command -v apt >/dev/null 2>&1; then
+    PKG_INSTALL="apt update && apt install -y"
+    SSH_SERVICE="ssh"
+elif command -v dnf >/dev/null 2>&1; then
+    PKG_INSTALL="dnf install -y"
+    SSH_SERVICE="sshd"
+elif command -v yum >/dev/null 2>&1; then
+    PKG_INSTALL="yum install -y"
+    SSH_SERVICE="sshd"
+elif command -v apk >/dev/null 2>&1; then
+    PKG_INSTALL="apk add"
+    SSH_SERVICE="sshd"
+else
+    echo "不支持的系统。"
+    exit 1
+fi
+
+# =========================
+# 安装基础工具
+# =========================
+
+echo "正在安装基础工具..."
+
+sh -c "$PKG_INSTALL curl wget sudo tzdata"
 
 # =========================
 # SSH 公钥
@@ -17,9 +46,11 @@ ROOT_KEY='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFgQVEPN1MvHxL8WGo2XHaG5w/OGT/OZQD
 
 mkdir -p ~/.ssh
 touch ~/.ssh/authorized_keys
+
 chmod 700 ~/.ssh
 chmod 600 ~/.ssh/authorized_keys
 
+echo ""
 echo "请选择要写入的 SSH 公钥："
 echo "1) nat 公钥"
 echo "2) root 公钥"
@@ -27,9 +58,10 @@ echo "3) 两个都写入"
 echo "4) 跳过"
 echo ""
 
-read -p "请输入选项: " keychoice
+printf "请输入选项: "
+read keychoice
 
-case $keychoice in
+case "$keychoice" in
     1)
         echo "$NAT_KEY" >> ~/.ssh/authorized_keys
         ;;
@@ -48,24 +80,26 @@ case $keychoice in
         ;;
 esac
 
+# 去重
+sort -u ~/.ssh/authorized_keys -o ~/.ssh/authorized_keys
+
 echo ""
-echo "正在验证 SSH 公钥是否写入成功..."
-echo ""
+echo "正在验证 SSH 公钥..."
 
 KEY_OK=0
 
 if grep -q "AAAAC3NzaC1lZDI1NTE5AAAAIE23Oz0PWi6phUxz0AylhhKMniWY9FA/WKlmEUpbVwpV" ~/.ssh/authorized_keys; then
-    echo "nat 公钥已成功写入。"
+    echo "nat 公钥已写入成功。"
     KEY_OK=1
 fi
 
 if grep -q "AAAAC3NzaC1lZDI1NTE5AAAAIFgQVEPN1MvHxL8WGo2XHaG5w/OGT/OZQD03shzNbuTr" ~/.ssh/authorized_keys; then
-    echo "root 公钥已成功写入。"
+    echo "root 公钥已写入成功。"
     KEY_OK=1
 fi
 
 if [ "$KEY_OK" -eq 0 ]; then
-    echo "未检测到有效公钥！"
+    echo "未检测到有效公钥。"
 fi
 
 # =========================
@@ -73,8 +107,10 @@ fi
 # =========================
 
 if [ "$KEY_OK" -eq 1 ]; then
+
     echo ""
     echo "是否关闭 SSH 密码登录？(y/n)"
+
     read disablepass
 
     if [ "$disablepass" = "y" ]; then
@@ -83,55 +119,71 @@ if [ "$KEY_OK" -eq 1 ]; then
 
         sed -i 's/^#?PermitRootLogin.*/PermitRootLogin prohibit-password/g' /etc/ssh/sshd_config
 
-        service sshd restart
+        service "$SSH_SERVICE" restart 2>/dev/null || rc-service "$SSH_SERVICE" restart 2>/dev/null || systemctl restart "$SSH_SERVICE"
 
-        echo "已关闭密码登录，仅允许 SSH 密钥登录。"
+        echo "已关闭 SSH 密码登录。"
+
     else
+
         echo "保留密码登录。"
+
     fi
+
 else
-    echo ""
+
     echo "由于未检测到有效公钥，为防止锁死 VPS，已跳过关闭密码登录。"
+
 fi
 
 # =========================
-# 修改 hostname
+# Hostname
 # =========================
 
 echo ""
 echo "是否修改主机名？(y/n)"
-read changehost
 
-if [ "$changehost" = "y" ]; then
-    echo "请输入新的主机名:"
-    read newhost
+read hostchange
 
-    hostname "$newhost"
-    echo "$newhost" > /etc/hostname
+if [ "$hostchange" = "y" ]; then
 
-    echo "主机名已修改为: $newhost"
+    printf "请输入新的主机名: "
+    read NEWHOST
+
+    hostname "$NEWHOST"
+
+    echo "$NEWHOST" > /etc/hostname
+
+    echo "主机名已修改。"
+
 fi
 
 # =========================
-# 时区设置
+# 时区
 # =========================
 
 echo ""
 echo "时区选项："
-echo "1) 亚洲/上海"
+echo "1) Asia/Shanghai"
 echo "2) 保持当前"
 echo ""
 
-read -p "请选择: " timezonechoice
+printf "请选择: "
+read tzchoice
 
-case $timezonechoice in
+case "$tzchoice" in
     1)
         if [ -f /usr/share/zoneinfo/Asia/Shanghai ]; then
-            cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
-            echo "Asia/Shanghai" > /etc/timezone
+
+            ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+
+            echo "Asia/Shanghai" > /etc/timezone 2>/dev/null
+
             echo "时区已修改为 Asia/Shanghai"
+
         else
-            echo "系统无时区文件，跳过。"
+
+            echo "系统缺少时区文件。"
+
         fi
         ;;
     2)
@@ -149,9 +201,10 @@ echo "1) 保持当前网络"
 echo "2) 跳过"
 echo ""
 
-read -p "请选择: " warpchoice
+printf "请选择: "
+read warpchoice
 
-case $warpchoice in
+case "$warpchoice" in
     1)
         echo "保持当前网络。"
         ;;
@@ -172,49 +225,64 @@ echo "3) 2G"
 echo "4) 跳过"
 echo ""
 
-read -p "请选择: " swapchoice
+printf "请选择: "
+read swapchoice
 
-case $swapchoice in
+case "$swapchoice" in
     1)
-        SWAPSIZE=512M
+        SWAP_MB=512
         ;;
     2)
-        SWAPSIZE=1G
+        SWAP_MB=1024
         ;;
     3)
-        SWAPSIZE=2G
+        SWAP_MB=2048
         ;;
-    4)
-        SWAPSIZE=""
+    *)
+        SWAP_MB=0
         ;;
 esac
 
-if [ -n "$SWAPSIZE" ]; then
+if [ "$SWAP_MB" -gt 0 ]; then
 
     if [ ! -f /swapfile ]; then
 
-        fallocate -l $SWAPSIZE /swapfile 2>/dev/null || dd if=/dev/zero of=/swapfile bs=1M count=$(echo $SWAPSIZE | sed 's/G/*1024/' | sed 's/M//g' | bc)
+        echo "正在创建 Swap..."
+
+        dd if=/dev/zero of=/swapfile bs=1M count="$SWAP_MB"
 
         chmod 600 /swapfile
+
         mkswap /swapfile
 
-        if swapon /swapfile; then
+        if swapon /swapfile 2>/dev/null; then
+
             echo "/swapfile none swap sw 0 0" >> /etc/fstab
+
             echo "Swap 创建成功。"
+
         else
+
             echo "当前 VPS 不支持 Swap。"
+
             rm -f /swapfile
+
         fi
+
     else
+
         echo "Swap 已存在。"
+
     fi
+
 fi
 
 # =========================
-# 常用 alias
+# alias
 # =========================
 
 if ! grep -q "alias ll=" ~/.profile 2>/dev/null; then
+
 cat >> ~/.profile << EOF
 
 alias ll='ls -alh'
@@ -223,18 +291,19 @@ alias l='ls -CF'
 alias cls='clear'
 
 EOF
+
 fi
 
 # =========================
-# 输出机器信息
+# 输出信息
 # =========================
 
 echo ""
 echo "=============================="
-echo " VPS 初始化完成"
+echo " 初始化完成"
 echo "=============================="
-echo ""
 
+echo ""
 echo "主机名:"
 hostname
 
@@ -244,11 +313,11 @@ uname -a
 
 echo ""
 echo "公网 IPv4:"
-wget -qO- ipv4.ip.sb 2>/dev/null
+wget -qO- ipv4.ip.sb 2>/dev/null || curl -4 -s ip.sb
 
 echo ""
 echo "公网 IPv6:"
-wget -qO- ipv6.ip.sb 2>/dev/null
+wget -qO- ipv6.ip.sb 2>/dev/null || curl -6 -s ip.sb
 
 echo ""
 echo "SSH 公钥:"
