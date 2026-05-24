@@ -31,4 +31,4 @@ Ubuntu
 
 使用方法
 
-bash <(curl -Ls https://raw.githubusercontent.com/你的用户名/vps-init/main/init.sh)
+bash <(curl -Ls https://github.com/yhkkty-oss/VPS-Init-Script/blob/main/init.sh)
