@@ -267,9 +267,9 @@ log "已备份 sshd_config"
 # 公钥
 # =========================
 
-NAT_KEY='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPLqn9LgwkGOhWBvqRnMg7NGo3z/3nV1qFm7dsuueGKm Generated-By-NeoServer'
+NAT_KEY='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPLqn9LgwkGOhWBvqRnMg7NGo3z/3nV1qFm7dsuueGKm NAT'
 
-ROOT_KEY='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE23Oz0PWi6phUxz0AylhhKMniWY9FA/WKlmEUpbVwpV Generated-By-NeoServer'
+ROOT_KEY='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE23Oz0PWi6phUxz0AylhhKMniWY9FA/WKlmEUpbVwpV ROOT'
 
 # =========================
 # 查看已有公钥
