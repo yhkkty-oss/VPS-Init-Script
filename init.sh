@@ -1,33 +1,38 @@
 #!/bin/sh
 
-# ==================================================
+# ==========================================
 # VPS 初始化脚本 Pro
-# 兼容 Alpine / Debian / Ubuntu / CentOS
-# ==================================================
+# 兼容:
+# Debian / Ubuntu / CentOS / AlmaLinux / Rocky
+# ==========================================
 
-set -eu
+LOG_FILE="/root/init.log"
 
-LOGFILE="/root/init.log"
-
-exec > >(tee -a "$LOGFILE") 2>&1
-
-clear
+exec > >(tee -a "$LOG_FILE") 2>&1
 
 echo "=============================="
 echo "VPS 初始化脚本 Pro"
 echo "=============================="
 echo
 
-# ==================================================
-# 系统检测
-# ==================================================
+# =========================
+# 退出函数
+# =========================
 
-if [ -f /etc/alpine-release ]; then
-    OS="alpine"
-elif [ -f /etc/debian_version ]; then
+exit_script() {
+    echo
+    echo "脚本已退出"
+    exit 0
+}
+
+# =========================
+# 检测系统
+# =========================
+
+if [ -f /etc/debian_version ]; then
     OS="debian"
 elif [ -f /etc/redhat-release ]; then
-    OS="centos"
+    OS="redhat"
 else
     OS="unknown"
 fi
@@ -35,520 +40,459 @@ fi
 echo "系统类型: $OS"
 echo
 
-# ==================================================
-# 虚拟化检测
-# ==================================================
+# =========================
+# 检测虚拟化
+# =========================
 
-VIRT="unknown"
+VIRT=$(systemd-detect-virt 2>/dev/null)
 
-if command -v systemd-detect-virt >/dev/null 2>&1; then
-    VIRT=$(systemd-detect-virt || true)
-fi
+[ -z "$VIRT" ] && VIRT="unknown"
 
 echo "虚拟化类型: $VIRT"
 echo
 
-# ==================================================
-# SSH 公钥
-# ==================================================
+# =========================
+# SSH 文件
+# =========================
 
-NAT_KEY='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPLqn9LgwkGOhWBvqRnMg7NGo3z/3nV1qFm7dsuueGKm Generated-By-NeoServer'
+SSH_DIR="$HOME/.ssh"
+AUTHORIZED_KEYS="$SSH_DIR/authorized_keys"
 
-ROOT_KEY='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE23Oz0PWi6phUxz0AylhhKMniWY9FA/WKlmEUpbVwpV Generated-By-NeoServer'
+mkdir -p "$SSH_DIR"
+touch "$AUTHORIZED_KEYS"
 
-# ==================================================
-# 函数
-# ==================================================
+chmod 700 "$SSH_DIR"
+chmod 600 "$AUTHORIZED_KEYS"
 
-exit_script() {
+# =========================
+# 公钥
+# =========================
 
-    echo
-    echo "用户退出脚本"
-    exit 0
-}
+NAT_KEY='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPLqn9LgwkGOhWBvqRnMg7NGo3z/3nV1qFm7dsuueGKm NAT'
 
-restart_sshd() {
+ROOT_KEY='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE23Oz0PWi6phUxz0AylhhKMniWY9FA/WKlmEUpbVwpV ROOT'
 
-    echo
-    echo "重启 SSH 服务..."
-
-    if command -v systemctl >/dev/null 2>&1; then
-
-        systemctl restart sshd 2>/dev/null || systemctl restart ssh
-
-    elif [ -f /etc/init.d/sshd ]; then
-
-        /etc/init.d/sshd restart
-
-    elif [ -f /etc/init.d/ssh ]; then
-
-        /etc/init.d/ssh restart
-
-    else
-
-        echo "无法自动重启 SSH"
-
-    fi
-}
-
-set_sshd_option() {
-
-    KEY="$1"
-    VALUE="$2"
-
-    sed -i "/^${KEY}/d" /etc/ssh/sshd_config
-
-    echo "${KEY} ${VALUE}" >> /etc/ssh/sshd_config
-}
-
-# ==================================================
-# 创建 SSH 目录
-# ==================================================
-
-mkdir -p ~/.ssh
-
-touch ~/.ssh/authorized_keys
-
-chmod 700 ~/.ssh
-
-chmod 600 ~/.ssh/authorized_keys
-
-# ==================================================
-# 显示公钥
-# ==================================================
+# =========================
+# 查看已有公钥
+# =========================
 
 echo "当前 authorized_keys 内容："
 echo "------------------------------"
 
-if [ -s ~/.ssh/authorized_keys ]; then
-
-    cat ~/.ssh/authorized_keys
-
+if [ -s "$AUTHORIZED_KEYS" ]; then
+    cat "$AUTHORIZED_KEYS"
 else
-
     echo "暂无公钥"
-
 fi
 
 echo "------------------------------"
 echo
 
-# ==================================================
-# SSH 公钥菜单
-# ==================================================
+# =========================
+# 写入公钥
+# =========================
 
 while true
 do
 
-    echo "请选择要写入的 SSH 公钥："
-    echo "1) nat 公钥"
-    echo "2) root 公钥"
-    echo "3) 两个都写入"
-    echo "4) 跳过"
-    echo "0) 退出脚本"
-    echo
+echo "请选择要写入的 SSH 公钥："
+echo "1) nat 公钥"
+echo "2) root 公钥"
+echo "3) 两个都写入"
+echo "4) 跳过"
+echo "0) 退出脚本"
+echo
 
-    printf "请输入选项: "
+printf "请输入选项: "
+read key_choice
 
-    read keychoice
+case "$key_choice" in
 
-    case "$keychoice" in
+1)
 
-        1)
+grep -qxF "$NAT_KEY" "$AUTHORIZED_KEYS" || echo "$NAT_KEY" >> "$AUTHORIZED_KEYS"
 
-            grep -qxF "$NAT_KEY" ~/.ssh/authorized_keys || echo "$NAT_KEY" >> ~/.ssh/authorized_keys
+echo "已写入 nat 公钥"
+break
+;;
 
-            echo "已写入 nat 公钥"
+2)
 
-            break
-            ;;
+grep -qxF "$ROOT_KEY" "$AUTHORIZED_KEYS" || echo "$ROOT_KEY" >> "$AUTHORIZED_KEYS"
 
-        2)
+echo "已写入 root 公钥"
+break
+;;
 
-            grep -qxF "$ROOT_KEY" ~/.ssh/authorized_keys || echo "$ROOT_KEY" >> ~/.ssh/authorized_keys
+3)
 
-            echo "已写入 root 公钥"
+grep -qxF "$NAT_KEY" "$AUTHORIZED_KEYS" || echo "$NAT_KEY" >> "$AUTHORIZED_KEYS"
 
-            break
-            ;;
+grep -qxF "$ROOT_KEY" "$AUTHORIZED_KEYS" || echo "$ROOT_KEY" >> "$AUTHORIZED_KEYS"
 
-        3)
+echo "已写入两个公钥"
+break
+;;
 
-            grep -qxF "$NAT_KEY" ~/.ssh/authorized_keys || echo "$NAT_KEY" >> ~/.ssh/authorized_keys
+4)
 
-            grep -qxF "$ROOT_KEY" ~/.ssh/authorized_keys || echo "$ROOT_KEY" >> ~/.ssh/authorized_keys
+echo "跳过写入公钥"
+break
+;;
 
-            echo "已写入两个公钥"
+0)
 
-            break
-            ;;
+exit_script
+;;
 
-        4)
+*)
 
-            echo "跳过写入公钥"
+echo "无效选项"
+echo
+;;
 
-            break
-            ;;
-
-        0)
-
-            exit_script
-            ;;
-
-        *)
-
-            echo
-            echo "输入无效，请重新输入"
-            echo
-            ;;
-    esac
+esac
 
 done
 
-# ==================================================
-# SSH 配置
-# ==================================================
+chmod 700 "$SSH_DIR"
+chmod 600 "$AUTHORIZED_KEYS"
+
+# =========================
+# SSH 配置函数
+# =========================
+
+set_sshd_option() {
+
+KEY="$1"
+VALUE="$2"
+
+SSHD_CONFIG="/etc/ssh/sshd_config"
+
+if grep -q "^#*$KEY" "$SSHD_CONFIG"; then
+    sed -i "s|^#*$KEY.*|$KEY $VALUE|g" "$SSHD_CONFIG"
+else
+    echo "$KEY $VALUE" >> "$SSHD_CONFIG"
+fi
+
+}
 
 echo
 echo "配置 SSH..."
+echo
 
-if [ -f /etc/ssh/sshd_config ]; then
+# =========================
+# SSH 基础配置
+# =========================
 
-    cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
+set_sshd_option PubkeyAuthentication yes
+set_sshd_option AuthorizedKeysFile .ssh/authorized_keys
+set_sshd_option PermitRootLogin yes
 
-    set_sshd_option PubkeyAuthentication yes
+# =========================
+# SSH 密码登录选项
+# =========================
 
-    set_sshd_option PermitRootLogin yes
+while true
+do
 
-    # ==============================================
-    # 更专业的判断
-    # ==============================================
+echo "SSH 安全选项："
+echo "1) 保持密码登录（推荐）"
+echo "2) 关闭密码登录"
+echo "0) 退出脚本"
+echo
 
-    echo
-    echo "SSH 安全选项："
-    echo "1) 保持密码登录（推荐首次初始化）"
-    echo "2) 关闭密码登录（已确认公钥可登录）"
-    echo "0) 退出脚本"
-    echo
+printf "请选择: "
+read sshmode
 
-    while true
-    do
+case "$sshmode" in
 
-        printf "请选择: "
+1)
 
-        read sshmode
+set_sshd_option PasswordAuthentication yes
 
-        case "$sshmode" in
+echo "已保留密码登录"
+break
+;;
 
-            1)
+2)
 
-                set_sshd_option PasswordAuthentication yes
-
-                echo "已保留密码登录"
-
-                break
-                ;;
-
-            2)
-
-                # ==================================
-                # 检测 authorized_keys 是否为空
-                # ==================================
-
-                if [ ! -s ~/.ssh/authorized_keys ]; then
-
-                    echo
-                    echo "未检测到公钥"
-                    echo "禁止关闭密码登录"
-                    echo
-
-                    set_sshd_option PasswordAuthentication yes
-
-                else
-
-                    set_sshd_option PasswordAuthentication no
-
-                    echo "已关闭密码登录"
-
-                fi
-
-                break
-                ;;
-
-            0)
-
-                exit_script
-                ;;
-
-            *)
-
-                echo "输入无效"
-                ;;
-
-        esac
-
-    done
+if [ ! -s "$AUTHORIZED_KEYS" ]; then
 
     echo
-    echo "检测 SSH 配置..."
+    echo "未检测到公钥"
+    echo "禁止关闭密码登录"
+    echo
 
-    if sshd -t 2>/tmp/sshd_test.log; then
+    continue
 
-        echo "SSH 配置正常"
+fi
 
-        restart_sshd
+set_sshd_option PasswordAuthentication no
 
-    else
+echo
+echo "警告："
+echo "请确认 SSH 公钥登录可用"
+echo
 
-        echo
-        echo "SSH 配置错误："
+break
+;;
 
-        cat /tmp/sshd_test.log
+0)
 
-        echo
-        echo "恢复 SSH 配置备份..."
+exit_script
+;;
 
-        cp /etc/ssh/sshd_config.bak /etc/ssh/sshd_config
+*)
 
-        restart_sshd
+echo "无效选项"
+echo
+;;
 
-    fi
+esac
+
+done
+
+# =========================
+# 检测 SSH 配置
+# =========================
+
+echo
+echo "检测 SSH 配置..."
+echo
+
+if sshd -t 2>/tmp/sshd_error.log; then
+
+    echo "SSH 配置正常"
 
 else
 
-    echo "未找到 sshd_config"
+    echo "SSH 配置错误："
+    cat /tmp/sshd_error.log
+
+    exit 1
 
 fi
 
-# ==================================================
-# 修改主机名
-# ==================================================
+# =========================
+# 重启 SSH
+# =========================
 
-while true
-do
+echo
+echo "重启 SSH 服务..."
+echo
 
-    echo
-    printf "是否修改主机名？(y/n/0退出): "
+if command -v systemctl >/dev/null 2>&1; then
 
-    read hostchoice
+    systemctl restart ssh 2>/dev/null || \
+    systemctl restart sshd 2>/dev/null
 
-    case "$hostchoice" in
+else
 
-        y|Y)
+    service ssh restart 2>/dev/null || \
+    service sshd restart 2>/dev/null
 
-            printf "请输入新的主机名: "
-
-            read NEWHOST
-
-            if [ -n "$NEWHOST" ]; then
-
-                hostname "$NEWHOST"
-
-                echo "$NEWHOST" > /etc/hostname
-
-                echo "主机名已修改为: $NEWHOST"
-
-            fi
-
-            break
-            ;;
-
-        n|N)
-
-            echo "跳过主机名修改"
-
-            break
-            ;;
-
-        0)
-
-            exit_script
-            ;;
-
-        *)
-
-            echo "输入无效"
-            ;;
-
-    esac
-
-done
-
-# ==================================================
-# 时区设置
-# ==================================================
-
-while true
-do
-
-    echo
-    echo "时区选项："
-    echo "1) Asia/Shanghai"
-    echo "2) 保持当前"
-    echo "0) 退出脚本"
-    echo
-
-    printf "请选择: "
-
-    read tzchoice
-
-    case "$tzchoice" in
-
-        1)
-
-            if [ -f /usr/share/zoneinfo/Asia/Shanghai ]; then
-
-                ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
-
-                echo "Asia/Shanghai" > /etc/timezone 2>/dev/null || true
-
-                echo "时区已修改为 Asia/Shanghai"
-
-            else
-
-                echo "系统缺少 zoneinfo"
-
-            fi
-
-            break
-            ;;
-
-        2)
-
-            echo "保持当前时区"
-
-            break
-            ;;
-
-        0)
-
-            exit_script
-            ;;
-
-        *)
-
-            echo "输入无效"
-            ;;
-
-    esac
-
-done
-
-# ==================================================
-# Swap 菜单
-# ==================================================
-
-SWAPSIZE=0
-
-while true
-do
-
-    echo
-    echo "Swap 选项："
-    echo "1) 512M"
-    echo "2) 1G"
-    echo "3) 2G"
-    echo "4) 跳过"
-    echo "0) 退出脚本"
-    echo
-
-    printf "请选择: "
-
-    read swapchoice
-
-    case "$swapchoice" in
-
-        1)
-
-            SWAPSIZE=512
-
-            break
-            ;;
-
-        2)
-
-            SWAPSIZE=1024
-
-            break
-            ;;
-
-        3)
-
-            SWAPSIZE=2048
-
-            break
-            ;;
-
-        4)
-
-            SWAPSIZE=0
-
-            break
-            ;;
-
-        0)
-
-            exit_script
-            ;;
-
-        *)
-
-            echo "输入无效"
-            ;;
-
-    esac
-
-done
-
-# ==================================================
-# 创建 Swap
-# ==================================================
-
-if [ "$SWAPSIZE" -gt 0 ]; then
-
-    if [ "$VIRT" = "lxc" ] || [ "$VIRT" = "openvz" ]; then
-
-        echo
-        echo "当前容器类型不支持 Swap"
-
-    else
-
-        echo
-        echo "创建 ${SWAPSIZE}M Swap..."
-
-        dd if=/dev/zero of=/swapfile bs=1M count="$SWAPSIZE"
-
-        chmod 600 /swapfile
-
-        mkswap /swapfile
-
-        if swapon /swapfile; then
-
-            echo "/swapfile none swap sw 0 0" >> /etc/fstab
-
-            echo "Swap 创建成功"
-
-        else
-
-            echo "Swap 启用失败"
-
-        fi
-    fi
 fi
 
-# ==================================================
+# =========================
+# 主机名
+# =========================
+
+while true
+do
+
+echo
+printf "是否修改主机名？(y/n/0退出): "
+
+read hostname_choice
+
+case "$hostname_choice" in
+
+y|Y)
+
+printf "请输入新的主机名: "
+read new_hostname
+
+if [ -n "$new_hostname" ]; then
+
+    hostnamectl set-hostname "$new_hostname" 2>/dev/null || \
+    hostname "$new_hostname"
+
+    echo "$new_hostname" > /etc/hostname
+
+    echo "主机名已修改为: $new_hostname"
+
+fi
+
+break
+;;
+
+n|N)
+
+echo "跳过主机名修改"
+break
+;;
+
+0)
+
+exit_script
+;;
+
+*)
+
+echo "无效选项"
+;;
+
+esac
+
+done
+
+# =========================
+# 时区
+# =========================
+
+while true
+do
+
+echo
+echo "时区选项："
+echo "1) Asia/Shanghai"
+echo "2) 保持当前"
+echo "0) 退出脚本"
+echo
+
+printf "请选择: "
+read timezone_choice
+
+case "$timezone_choice" in
+
+1)
+
+timedatectl set-timezone Asia/Shanghai 2>/dev/null || \
+ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime
+
+echo "时区已修改为 Asia/Shanghai"
+
+break
+;;
+
+2)
+
+echo "保持当前时区"
+
+break
+;;
+
+0)
+
+exit_script
+;;
+
+*)
+
+echo "无效选项"
+;;
+
+esac
+
+done
+
+# =========================
+# Swap
+# =========================
+
+while true
+do
+
+echo
+echo "Swap 选项："
+echo "1) 512M"
+echo "2) 1G"
+echo "3) 2G"
+echo "4) 跳过"
+echo "0) 退出脚本"
+echo
+
+printf "请选择: "
+read swap_choice
+
+case "$swap_choice" in
+
+1)
+SWAP_SIZE=512M
+break
+;;
+
+2)
+SWAP_SIZE=1G
+break
+;;
+
+3)
+SWAP_SIZE=2G
+break
+;;
+
+4)
+
+SWAP_SIZE=""
+break
+;;
+
+0)
+
+exit_script
+;;
+
+*)
+
+echo "无效选项"
+;;
+
+esac
+
+done
+
+if [ -n "$SWAP_SIZE" ]; then
+
+echo
+echo "创建 Swap: $SWAP_SIZE"
+
+fallocate -l "$SWAP_SIZE" /swapfile 2>/dev/null || \
+dd if=/dev/zero of=/swapfile bs=1M count=$(echo "$SWAP_SIZE" | sed 's/G/*1024/' | sed 's/M//g' | bc)
+
+chmod 600 /swapfile
+
+mkswap /swapfile
+
+swapon /swapfile
+
+grep -q "/swapfile" /etc/fstab || \
+echo "/swapfile none swap sw 0 0" >> /etc/fstab
+
+echo "Swap 创建完成"
+
+fi
+
+# =========================
 # 完成
-# ==================================================
+# =========================
 
 echo
 echo "=============================="
 echo "初始化完成"
 echo "=============================="
 echo
-echo "日志文件: $LOGFILE"
+echo "日志文件: $LOG_FILE"
 echo
-echo "请新开终端测试 SSH 公钥登录"
+echo "当前 SSH 配置："
+
+grep -E 'PermitRootLogin|PasswordAuthentication|PubkeyAuthentication' /etc/ssh/sshd_config
+
 echo
-echo "确认公钥可用后"
-echo "再关闭 SSH 密码登录"
+echo "请务必测试 SSH 公钥登录"
+echo
+echo "建议："
+echo "确认公钥登录正常后"
+echo "再关闭密码登录"
 echo
