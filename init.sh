@@ -8,6 +8,7 @@
 set -eu
 
 LOGFILE="/root/init.log"
+
 exec > >(tee -a "$LOGFILE") 2>&1
 
 clear
@@ -35,7 +36,7 @@ echo "系统类型: $OS"
 echo
 
 # ==================================================
-# 容器检测
+# 虚拟化检测
 # ==================================================
 
 VIRT="unknown"
@@ -59,11 +60,8 @@ ROOT_KEY='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE23Oz0PWi6phUxz0AylhhKMniWY9FA/WK
 # 函数
 # ==================================================
 
-pause() {
-    echo
-}
-
 exit_script() {
+
     echo
     echo "用户退出脚本"
     exit 0
@@ -75,16 +73,21 @@ restart_sshd() {
     echo "重启 SSH 服务..."
 
     if command -v systemctl >/dev/null 2>&1; then
+
         systemctl restart sshd 2>/dev/null || systemctl restart ssh
 
     elif [ -f /etc/init.d/sshd ]; then
+
         /etc/init.d/sshd restart
 
     elif [ -f /etc/init.d/ssh ]; then
+
         /etc/init.d/ssh restart
 
     else
+
         echo "无法自动重启 SSH"
+
     fi
 }
 
@@ -111,16 +114,20 @@ chmod 700 ~/.ssh
 chmod 600 ~/.ssh/authorized_keys
 
 # ==================================================
-# 查看已有公钥
+# 显示公钥
 # ==================================================
 
 echo "当前 authorized_keys 内容："
 echo "------------------------------"
 
 if [ -s ~/.ssh/authorized_keys ]; then
+
     cat ~/.ssh/authorized_keys
+
 else
+
     echo "暂无公钥"
+
 fi
 
 echo "------------------------------"
@@ -148,34 +155,48 @@ do
     case "$keychoice" in
 
         1)
+
             grep -qxF "$NAT_KEY" ~/.ssh/authorized_keys || echo "$NAT_KEY" >> ~/.ssh/authorized_keys
+
             echo "已写入 nat 公钥"
+
             break
             ;;
 
         2)
+
             grep -qxF "$ROOT_KEY" ~/.ssh/authorized_keys || echo "$ROOT_KEY" >> ~/.ssh/authorized_keys
+
             echo "已写入 root 公钥"
+
             break
             ;;
 
         3)
+
             grep -qxF "$NAT_KEY" ~/.ssh/authorized_keys || echo "$NAT_KEY" >> ~/.ssh/authorized_keys
+
             grep -qxF "$ROOT_KEY" ~/.ssh/authorized_keys || echo "$ROOT_KEY" >> ~/.ssh/authorized_keys
+
             echo "已写入两个公钥"
+
             break
             ;;
 
         4)
+
             echo "跳过写入公钥"
+
             break
             ;;
 
         0)
+
             exit_script
             ;;
 
         *)
+
             echo
             echo "输入无效，请重新输入"
             echo
@@ -195,9 +216,78 @@ if [ -f /etc/ssh/sshd_config ]; then
 
     cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
 
-    set_sshd_option PasswordAuthentication no
     set_sshd_option PubkeyAuthentication yes
+
     set_sshd_option PermitRootLogin yes
+
+    # ==============================================
+    # 更专业的判断
+    # ==============================================
+
+    echo
+    echo "SSH 安全选项："
+    echo "1) 保持密码登录（推荐首次初始化）"
+    echo "2) 关闭密码登录（已确认公钥可登录）"
+    echo "0) 退出脚本"
+    echo
+
+    while true
+    do
+
+        printf "请选择: "
+
+        read sshmode
+
+        case "$sshmode" in
+
+            1)
+
+                set_sshd_option PasswordAuthentication yes
+
+                echo "已保留密码登录"
+
+                break
+                ;;
+
+            2)
+
+                # ==================================
+                # 检测 authorized_keys 是否为空
+                # ==================================
+
+                if [ ! -s ~/.ssh/authorized_keys ]; then
+
+                    echo
+                    echo "未检测到公钥"
+                    echo "禁止关闭密码登录"
+                    echo
+
+                    set_sshd_option PasswordAuthentication yes
+
+                else
+
+                    set_sshd_option PasswordAuthentication no
+
+                    echo "已关闭密码登录"
+
+                fi
+
+                break
+                ;;
+
+            0)
+
+                exit_script
+                ;;
+
+            *)
+
+                echo "输入无效"
+                ;;
+
+        esac
+
+    done
 
     echo
     echo "检测 SSH 配置..."
@@ -212,14 +302,16 @@ if [ -f /etc/ssh/sshd_config ]; then
 
         echo
         echo "SSH 配置错误："
+
         cat /tmp/sshd_test.log
 
         echo
-        echo "恢复备份配置..."
+        echo "恢复 SSH 配置备份..."
 
         cp /etc/ssh/sshd_config.bak /etc/ssh/sshd_config
 
         restart_sshd
+
     fi
 
 else
@@ -255,29 +347,35 @@ do
                 echo "$NEWHOST" > /etc/hostname
 
                 echo "主机名已修改为: $NEWHOST"
+
             fi
 
             break
             ;;
 
         n|N)
+
             echo "跳过主机名修改"
+
             break
             ;;
 
         0)
+
             exit_script
             ;;
 
         *)
+
             echo "输入无效"
             ;;
+
     esac
 
 done
 
 # ==================================================
-# 时区菜单
+# 时区设置
 # ==================================================
 
 while true
@@ -330,8 +428,8 @@ do
         *)
 
             echo "输入无效"
-
             ;;
+
     esac
 
 done
@@ -361,32 +459,43 @@ do
     case "$swapchoice" in
 
         1)
+
             SWAPSIZE=512
+
             break
             ;;
 
         2)
+
             SWAPSIZE=1024
+
             break
             ;;
 
         3)
+
             SWAPSIZE=2048
+
             break
             ;;
 
         4)
+
             SWAPSIZE=0
+
             break
             ;;
 
         0)
+
             exit_script
             ;;
 
         *)
+
             echo "输入无效"
             ;;
+
     esac
 
 done
@@ -438,6 +547,8 @@ echo "=============================="
 echo
 echo "日志文件: $LOGFILE"
 echo
-echo "SSH 已关闭密码登录"
-echo "请确认公钥登录正常"
+echo "请新开终端测试 SSH 公钥登录"
+echo
+echo "确认公钥可用后"
+echo "再关闭 SSH 密码登录"
 echo
